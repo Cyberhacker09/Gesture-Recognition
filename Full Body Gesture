@@ -1,0 +1,83 @@
+import cv2
+import mediapipe as mp
+import numpy as np
+import dlib
+from sklearn.ensemble import RandomForestClassifier
+import joblib
+# Initialize MediaPipe and dlib models
+mp_hands = mp.solutions.hands
+mp_pose = mp.solutions.pose
+mp_face_mesh = mp.solutions.face_mesh
+mp_drawing = mp.solutions.drawing_utils
+# Load pre-trained models (if available)
+try:
+    hand_model = joblib.load("hand_gesture_model.pkl")
+    body_model = joblib.load("body_pose_model.pkl")
+except FileNotFoundError:
+    hand_model = None
+    body_model = None
+# Dlib face detector
+detector = dlib.get_frontal_face_detector()
+predictor = dlib.shape_predictor("shape_predictor_68_face_landmarks.dat")
+# Action mappings
+def perform_action(gesture):
+    actions = {
+        "thumbs_up": lambda: print("Thumbs up detected! Action triggered."),
+        "wave": lambda: print("Wave gesture detected!"),
+        "eye_blink": lambda: print("Eye blink detected!"),
+        "nod": lambda: print("Nod detected!"),
+        "look_left": lambda: print("Looking left detected!"),
+        "look_right": lambda: print("Looking right detected!"),
+    }
+    action = actions.get(gesture, lambda: print(f"Unknown gesture: {gesture}"))
+    action()
+# Gesture detection
+def detect_gestures():
+    cap = cv2.VideoCapture(0)
+    hands = mp_hands.Hands(static_image_mode=False, max_num_hands=2, min_detection_confidence=0.5)
+    pose = mp_pose.Pose(static_image_mode=False, min_detection_confidence=0.5)
+    face_mesh = mp_face_mesh.FaceMesh(static_image_mode=False, max_num_faces=1, min_detection_confidence=0.5)
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            break
+        frame = cv2.flip(frame, 1)
+        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        # Detect hands
+        hand_results = hands.process(rgb_frame)
+        if hand_results.multi_hand_landmarks:
+            for hand_landmarks in hand_results.multi_hand_landmarks:
+                mp_drawing.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
+                # Extract hand features
+                landmarks = [lm for landmark in hand_landmarks.landmark for lm in (landmark.x, landmark.y, landmark.z)]
+                if hand_model:
+                    gesture = hand_model.predict([landmarks])[0]
+                    cv2.putText(frame, f"Hand Gesture: {gesture}", (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+                    perform_action(gesture)
+        # Detect pose
+        pose_results = pose.process(rgb_frame)
+        if pose_results.pose_landmarks:
+            mp_drawing.draw_landmarks(frame, pose_results.pose_landmarks, mp_pose.POSE_CONNECTIONS)
+        # Detect face
+        gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        faces = detector(gray_frame)
+        for face in faces:
+            landmarks = predictor(gray_frame, face)
+            for n in range(68):
+                x, y = landmarks.part(n).x, landmarks.part(n).y
+                cv2.circle(frame, (x, y), 2, (255, 0, 0), -1)
+            # Detect blinks (example logic)
+            left_eye_ratio = (landmarks.part(37).y - landmarks.part(41).y) / (landmarks.part(36).x - landmarks.part(39).x)
+            right_eye_ratio = (landmarks.part(43).y - landmarks.part(47).y) / (landmarks.part(42).x - landmarks.part(45).x)
+            if left_eye_ratio < 0.25 and right_eye_ratio < 0.25:
+                cv2.putText(frame, "Blink Detected", (10, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+                perform_action("eye_blink")
+        # Display the result
+        cv2.imshow("Gesture Detection System", frame)
+
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+    cap.release()
+    cv2.destroyAllWindows()
+# Run gesture detection
+detect_gestures()
