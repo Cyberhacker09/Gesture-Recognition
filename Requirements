@@ -7,4 +7,5 @@ iv>  pip install joblib
 v> pip install dlib (This thing can't be installed in your code like that for this i will provide the file in my repository you just have to make it to ur python scripts folder and now just give this 
                         code: pip install {path in which your file is saved})
 vi> pip show scikit-learn
+vii)For the movement i am providing a ".dat" just save it in your folder of ur scripts.
 These things need to be installed if u need to run this code in your system.
