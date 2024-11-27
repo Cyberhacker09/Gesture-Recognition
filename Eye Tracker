@@ -1,1 +1,81 @@
+import cv2
+import dlib
+from scipy.spatial import distance as dist
 
+# Function to calculate eye aspect ratio (EAR)
+def calculate_ear(eye):
+    A = dist.euclidean(eye[1], eye[5])  # Vertical distance
+    B = dist.euclidean(eye[2], eye[4])  # Vertical distance
+    C = dist.euclidean(eye[0], eye[3])  # Horizontal distance
+    ear = (A + B) / (2.0 * C)
+    return ear
+
+# Thresholds
+EYE_AR_THRESH = 0.25  # EAR below which a blink is registered
+EYE_AR_CONSEC_FRAMES = 3  # Number of consecutive frames a blink must last
+
+# Initialize counters
+blink_count = 0
+frame_counter = 0
+
+# Load dlib's face detector and landmark predictor
+detector = dlib.get_frontal_face_detector()
+predictor = dlib.shape_predictor("shape_predictor_68_face_landmarks.dat")
+
+# Get indexes for the left and right eyes from the facial landmarks
+(left_eye_start, left_eye_end) = (42, 48)
+(right_eye_start, right_eye_end) = (36, 42)
+
+# Start video capture
+cap = cv2.VideoCapture(0)
+
+while True:
+    ret, frame = cap.read()
+    if not ret:
+        break
+
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+    # Detect faces in the frame
+    faces = detector(gray)
+    for face in faces:
+        # Get facial landmarks
+        shape = predictor(gray, face)
+        landmarks = [(shape.part(i).x, shape.part(i).y) for i in range(68)]
+        left_eye = landmarks[left_eye_start:left_eye_end]
+        right_eye = landmarks[right_eye_start:right_eye_end]
+
+        # Calculate EAR for both eyes
+        left_ear = calculate_ear(left_eye)
+        right_ear = calculate_ear(right_eye)
+        ear = (left_ear + right_ear) / 2.0
+
+        # Visualize the eyes
+        for point in left_eye:
+            cv2.circle(frame, point, 2, (0, 255, 0), -1)
+        for point in right_eye:
+            cv2.circle(frame, point, 2, (0, 255, 0), -1)
+
+        # Check if EAR is below the blink threshold
+        if ear < EYE_AR_THRESH:
+            frame_counter += 1
+        else:
+            if frame_counter >= EYE_AR_CONSEC_FRAMES:
+                blink_count += 1
+                print(f"Blink detected! Total: {blink_count}")
+            frame_counter = 0
+
+        # Display blink count
+        cv2.putText(frame, f"Blinks: {blink_count}", (10, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
+
+    # Display the frame
+    cv2.imshow("Eye Gesture Tracker", frame)
+
+    # Exit loop if 'q' is pressed
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+# Release resources
+cap.release()
+cv2.destroyAllWindows()
