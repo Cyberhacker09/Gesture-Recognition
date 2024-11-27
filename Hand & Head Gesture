@@ -1,0 +1,130 @@
+import subprocess
+import sys
+
+# Step 1: Ensure required libraries are installed
+def install_required_libraries():
+    required_libraries = ["opencv-python", "mediapipe", "numpy"]
+    for library in required_libraries:
+        try:
+            __import__(library.split('-')[0])
+        except ImportError:
+            print(f"{library} not found. Installing...")
+            subprocess.check_call([sys.executable, "-m", "pip", "install", library])
+
+# Install libraries
+install_required_libraries()
+
+# Import libraries after ensuring they are installed
+import cv2
+import mediapipe as mp
+import numpy as np
+
+# Mediapipe setup
+mp_face_mesh = mp.solutions.face_mesh
+mp_hands = mp.solutions.hands
+mp_drawing = mp.solutions.drawing_utils
+mp_drawing_styles = mp.solutions.drawing_styles
+
+# Webcam initialization
+cap = cv2.VideoCapture(0)  # Default webcam
+
+if not cap.isOpened():
+    print("Error: Could not access the webcam.")
+    exit()
+
+# Mediapipe configurations
+with mp_face_mesh.FaceMesh(
+    max_num_faces=1, 
+    refine_landmarks=True, 
+    min_detection_confidence=0.5, 
+    min_tracking_confidence=0.5
+) as face_mesh, mp_hands.Hands(
+    max_num_hands=2, 
+    min_detection_confidence=0.5, 
+    min_tracking_confidence=0.5
+) as hands:
+
+    print("Press 'q' to quit the application.")
+
+    while True:
+        # Capture webcam frame
+        ret, frame = cap.read()
+        if not ret:
+            print("Error: Could not read frame.")
+            break
+
+        # Flip and convert to RGB
+        frame = cv2.flip(frame, 1)
+        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+        # Process face mesh landmarks
+        face_results = face_mesh.process(rgb_frame)
+
+        # Process hand landmarks
+        hand_results = hands.process(rgb_frame)
+
+        # Face detection and hair approximation
+        if face_results.multi_face_landmarks:
+            for face_landmarks in face_results.multi_face_landmarks:
+                # Draw face mesh
+                mp_drawing.draw_landmarks(
+                    image=frame,
+                    landmark_list=face_landmarks,
+                    connections=mp_face_mesh.FACEMESH_TESSELATION,
+                    landmark_drawing_spec=None,
+                    connection_drawing_spec=mp_drawing_styles.get_default_face_mesh_tesselation_style()
+                )
+
+                # Extract forehead coordinates (approx. hairline)
+                forehead_x = int(face_landmarks.landmark[10].x * frame.shape[1])  # Forehead point
+                forehead_y = int(face_landmarks.landmark[10].y * frame.shape[0])
+
+                # Define hair detection region
+                hair_region_top = max(0, forehead_y - 150)
+                hair_region_bottom = max(0, forehead_y - 50)
+                hair_region_left = max(0, forehead_x - 100)
+                hair_region_right = min(frame.shape[1], forehead_x + 100)
+
+                # Highlight hair region
+                cv2.rectangle(frame, (hair_region_left, hair_region_top), 
+                              (hair_region_right, hair_region_bottom), 
+                              (0, 255, 0), 2)
+                cv2.putText(frame, "Hair Detected", (hair_region_left, hair_region_top - 10), 
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+
+        # Hand gesture detection
+        if hand_results.multi_hand_landmarks:
+            for hand_landmarks in hand_results.multi_hand_landmarks:
+                # Draw hand landmarks
+                mp_drawing.draw_landmarks(
+                    image=frame,
+                    landmark_list=hand_landmarks,
+                    connections=mp_hands.HAND_CONNECTIONS,
+                    landmark_drawing_spec=mp_drawing_styles.get_default_hand_landmarks_style(),
+                    connection_drawing_spec=mp_drawing_styles.get_default_hand_connections_style()
+                )
+
+                # Check for gestures (basic examples: open/closed hand)
+                thumb_tip = hand_landmarks.landmark[mp_hands.HandLandmark.THUMB_TIP]
+                index_tip = hand_landmarks.landmark[mp_hands.HandLandmark.INDEX_FINGER_TIP]
+
+                # Calculate distance between thumb and index tip
+                thumb_tip_coords = np.array([thumb_tip.x * frame.shape[1], thumb_tip.y * frame.shape[0]])
+                index_tip_coords = np.array([index_tip.x * frame.shape[1], index_tip.y * frame.shape[0]])
+                distance = np.linalg.norm(thumb_tip_coords - index_tip_coords)
+
+                # Detect "pinch" gesture if the thumb and index are close
+                if distance < 40:  # Adjust threshold based on frame resolution
+                    cv2.putText(frame, "Pinch Gesture Detected", (10, 50), 
+                                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+
+        # Display the frame
+        cv2.imshow("Face, Hair, and Hand Gesture Detection", frame)
+
+        # Quit application when 'q' is pressed
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+# Release the webcam and destroy all windows
+cap.release()
+cv2.destroyAllWindows()
